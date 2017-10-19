@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"mapreduce"
 	"os"
+    "unicode"
+    // 这个包用来做字符串和数字之间的转化
+    "strconv"
 )
 
 //
@@ -14,6 +17,23 @@ import (
 // of key/value pairs.
 //
 func mapF(filename string, contents string) []mapreduce.KeyValue {
+    mp := make(map[string]int)
+    for wk := 0; wk < len(contents); wk += 1{
+        if !unicode.IsLetter(int32(contents[wk])){
+            continue
+        }
+        word := ""
+        for unicode.IsLetter(int32(contents[wk])){
+            word += string(contents[wk])
+            wk += 1
+        }
+        mp[word] += 1
+    }
+    var rst []mapreduce.KeyValue
+    for key, value := range(mp){
+        rst = append(rst, mapreduce.KeyValue{key, strconv.Itoa(value)})
+    }
+    return rst
 	// TODO: you have to write this function
 }
 
@@ -23,7 +43,13 @@ func mapF(filename string, contents string) []mapreduce.KeyValue {
 // any map task.
 //
 func reduceF(key string, values []string) string {
-	// TODO: you also have to write this function
+    rst := 0
+    for _, v := range(values){
+        vi, _ := strconv.Atoi(v)
+        rst += vi
+    }
+    return strconv.Itoa(rst)
+    // TODO: you also have to write this function
 }
 
 // Can be run in 3 ways:

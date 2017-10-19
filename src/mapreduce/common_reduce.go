@@ -1,5 +1,18 @@
 package mapreduce
 
+import (
+    "os"
+    "sort"
+    "encoding/json"
+)
+
+type mySortInter []KeyValue
+
+// 只要实现了这三个接口，就可以调用sort.Sort()
+// 当然，如果要排列的是简单的字符串，那可以直接sort.Strings(strarray)
+func (a mySortInter) Len() int { return len(a) }
+func (a mySortInter) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a mySortInter) Less(i, j int) bool { return a[i].Key < a[j].Key }
 // doReduce manages one reduce task: it reads the intermediate
 // key/value pairs (produced by the map phase) for this task, sorts the
 // intermediate key/value pairs by key, calls the user-defined reduce function
@@ -11,6 +24,36 @@ func doReduce(
 	nMap int, // the number of map tasks that were run ("M" in the paper)
 	reduceF func(key string, values []string) string,
 ) {
+    keyvalues := make(map[string][]string)
+    for m := 0; m < nMap; m += 1{
+        thisFile, _ := os.Open(reduceName(jobName, m, reduceTaskNumber))
+        thisDecoder := json.NewDecoder(thisFile)
+        var kv KeyValue;
+        for{
+            err := thisDecoder.Decode(&kv)
+            if err != nil{
+                break
+            }
+            keyvalues[kv.Key] = append(keyvalues[kv.Key], kv.Value)
+        }
+        thisFile.Close()
+    }
+    var keyrsts []KeyValue
+    for key, values := range(keyvalues){
+        keyrsts = append(keyrsts, KeyValue{key, reduceF(key, values)})
+    }
+    sort.Sort(mySortInter(keyrsts))
+    rstFile, _ := os.Create(outFile)
+    enc := json.NewEncoder(rstFile)
+    // 特别要小心。。。
+    // 如果不用两个变量，那得到的是下标，不是元素。。。
+    // 编译器不会报错
+    for _, kv := range(keyrsts){
+        enc.Encode(kv)
+    }
+    rstFile.Close()
+
+
 	//
 	// You will need to write this function.
 	//

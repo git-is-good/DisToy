@@ -2,6 +2,9 @@ package mapreduce
 
 import (
 	"hash/fnv"
+    "os"
+    "io/ioutil"
+    "encoding/json"
 )
 
 // doMap manages one map task: it reads one of the input files
@@ -14,7 +17,31 @@ func doMap(
 	nReduce int, // the number of reduce task that will be run ("R" in the paper)
 	mapF func(file string, contents string) []KeyValue,
 ) {
-	//
+    contents, _ := ioutil.ReadFile(inFile)
+    keyvalues := mapF(inFile, string(contents))
+    files := make([]*os.File, nReduce)
+    encs := make([]*json.Encoder, nReduce)
+    for r := 0; r < nReduce; r += 1{
+        nm := reduceName(jobName, mapTaskNumber, r)
+        files[r], _ = os.Create(nm)
+        encs[r] = json.NewEncoder(files[r])
+    }
+    for _, kv := range(keyvalues) {
+        encs[ihash(kv.Key) % nReduce].Encode(kv)
+    }
+    // 注意：这一步关闭文件非常重要，有文件打开后未关闭导致的问题会在
+    //      很久之后才显现出来
+    // 如果出现了socket: too many files 这样的问题，可以先计算自己的程序
+    // 在同一个时刻最多大概会打开多少文件，如果明显少于操作系统的限制
+    // 那一定要想到可能是某处的文件打开后没有关闭。
+    // ---- 要反复仔细的确认是不是真的关闭了，比如这里，原来也有下面
+    //      这两行代码，但那时候并没有真的关闭，因为files[r]里面当时
+    //      忘记把打开的文件指针放进去了
+    for r := 0; r < nReduce; r += 1{
+        files[r].Close()
+    }
+
+    //
 	// You will need to write this function.
 	//
 	// The intermediate output of a map task is stored as multiple
