@@ -75,6 +75,7 @@ type Raft struct {
 	// state a Raft server must maintain.
 
     applyCh         chan ApplyMsg
+    subCh           chan ApplyMsg
 
     currentState    raftState
 
@@ -458,6 +459,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
     npeers := len(peers)
     rf.applyCh = applyCh
+    rf.subCh = make(chan ApplyMsg)
 
     rf.currentState = followerState
 
@@ -480,6 +482,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 
     go rf.mainloop()
+    go rf.submitter()
 
 	return rf
 }
@@ -684,6 +687,41 @@ func (rf *Raft) checkCommit() {
     }
 }
 
+//TODO: here is an ad hoc vector used as a priority queue
+//replace it to priority queue...
+func (rf *Raft) submitter() {
+    nextRealApply := 0
+    remains := make([]ApplyMsg, 0)
+    for {
+        v := <-rf.subCh
+//        fmt.Printf("%d submitter received: %d\n", rf.me, v.Index - 1)
+        if v.Index - 1 == nextRealApply {
+            rf.applyCh <- v
+            nextRealApply += 1
+            // with this v added, maybe many remains can be submitted
+            for {
+                lrem := len(remains)
+                i := 0
+                for ; i < lrem; i++ {
+                    e := remains[i]
+                    if e.Index - 1 == nextRealApply {
+                        rf.applyCh <- e
+                        nextRealApply += 1
+                        remains = append(remains[:i], remains[i+1:]...)
+                        break
+                    }
+                }
+                if i == lrem {
+                    // no more
+                    break
+                }
+            }
+        } else {
+            remains = append(remains, v)
+        }
+    }
+}
+
 func (rf *Raft) checkApply() {
     rf.mu.Lock()
     defer rf.mu.Unlock()
@@ -701,7 +739,7 @@ func (rf *Raft) checkApply() {
                 Command : rf.log[i].Command,
             }
             rf.mu.Unlock()
-            rf.applyCh <- applyMsg
+            rf.subCh <- applyMsg
         }
         //fmt.Printf("%d committed from %d to %d\n", rf.me, from, to)
     } (rf.lastApplied + 1, rf.commitIndex)
