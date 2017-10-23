@@ -22,7 +22,7 @@ import(
     "labrpc"
     "time"
     "math/rand"
-    "fmt"
+//    "fmt"
     "reflect"
 )
 
@@ -91,7 +91,7 @@ type Raft struct {
     randGen         *rand.Rand
     appendRcvCh     chan bool
     voteGrantCh     chan bool
-    electedCh       chan bool
+    electedCh       chan int
 }
 
 func (rf *Raft) getNewElectionTimer() *time.Timer {
@@ -171,6 +171,13 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
     Term            int
     Success         bool
+
+    // here is not "type safe", 
+    // if ConflictStart == -2, it's for "lack"
+    // then ConflictTerm is the follower's suggested
+    // nextIndex. it's multiple use of a variable with poor name...
+    ConflictTerm    int
+    ConflictStart   int
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -185,6 +192,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
     reply.Term = rf.currentTerm
     reply.Success = false
+    reply.ConflictStart = -1
+    reply.ConflictTerm = -1
 
     if args.Term < rf.currentTerm {
         return
@@ -198,9 +207,20 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
         rf.updateTermAndConvert(args.Term)
     }
 
-    if len(rf.log) <= args.PrevLogIndex || (args.PrevLogIndex >= 0 && rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
-    //if args.PrevLogIndex != -1 && (len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
-        //fmt.Println("** Need prev log")
+    if len(rf.log) <= args.PrevLogIndex {
+        // lack
+        reply.ConflictStart = -2
+        reply.ConflictTerm = len(rf.log)
+        return
+    } else if (args.PrevLogIndex >= 0 && rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
+        reply.ConflictTerm = rf.log[args.PrevLogIndex].Term
+        reply.ConflictStart = 0
+        for i := args.PrevLogIndex - 1; i >= 0; i-- {
+            if rf.log[i].Term != reply.ConflictTerm {
+                reply.ConflictStart = i + 1
+                break
+            }
+        }
         return
     }
 
@@ -454,7 +474,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
     rf.randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
     rf.appendRcvCh = make(chan bool)
     rf.voteGrantCh = make(chan bool)
-    rf.electedCh   = make(chan bool)
+    rf.electedCh   = make(chan int)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -471,6 +491,10 @@ func (rf *Raft) broadcastAppendEntries() {
     rf.mu.Lock()
     defer rf.mu.Unlock()
 
+    // *must* check first whether it's still a leader
+    // because updateTermAndConvert() will increment
+    // its term. without this check, it will broadcastAppendEntries
+    // as if it was a leader of *new* term
     if rf.currentState != leaderState {
         return
     }
@@ -529,8 +553,23 @@ func (rf *Raft) broadcastAppendEntries() {
                 if nextIndexI == 0 {
                     panic("nextIndexI == 0 cannot happen here")
                 }
+
                 rf.mu.Lock()
-                rf.nextIndex[i] = nextIndexI - 1
+                newPrev := -1
+                if reply.ConflictStart == -2 {
+                    // lack
+                    newPrev = reply.ConflictTerm - 1
+                } else if reply.ConflictStart >= 0 {
+                    newPrev = reply.ConflictStart - 1
+                    for j := nextIndexI - 1; j >= reply.ConflictStart; j-- {
+                        if j < len(rf.log) && rf.log[j].Term == reply.ConflictTerm {
+                            newPrev = j
+                            break
+                        }
+                    }
+                }
+                rf.nextIndex[i] = newPrev + 1
+//                fmt.Printf("reply.ConflictStart = %d, nextIndex[%d] = %d\n", reply.ConflictStart, i, rf.nextIndex[i])
                 rf.mu.Unlock()
             }
         } (i)
@@ -600,8 +639,8 @@ func (rf *Raft) broadcastRequestVote() {
             granted += 1
             if granted * 2 > npeers {
                 // Become leader, stop electionTiming
-                fmt.Printf("==> %d got %d among %d, becoming leader for term %d...\n", me, granted, npeers, currentTerm)
-                rf.electedCh <- true
+//                fmt.Printf("==> %d got %d among %d, becoming leader for term %d...\n", me, granted, npeers, currentTerm)
+                rf.electedCh <- currentTerm
                 return
             }
         }
@@ -691,13 +730,6 @@ func (rf *Raft) mainloop() {
                 electionTimer.Stop()
             }
         case candidateState:
-            // drain electedCh
-            // select {
-            // case <-rf.electedCh:
-            //     fmt.Printf("%d electedCh drained\n", rf.me)
-            // default:
-            // }
-
             rf.currentTerm += 1
             rf.votedFor = rf.me
             rf.persist()
@@ -708,17 +740,23 @@ func (rf *Raft) mainloop() {
             case <-electionTimer.C:
 //                fmt.Printf("%d electionTimer timeout\n", rf.me)
                 // election timeout as a candidate, start new election
-            case <-rf.electedCh:
+            case v := <-rf.electedCh:
                 // elected chan filled by broadcastRequestVote 
                 electionTimer.Stop()
                 rf.mu.Lock()
-                for i := 0; i < len(rf.peers); i++ {
-                    rf.nextIndex[i] = len(rf.log)
-                    rf.matchIndex[i] = -1
+                // maybe because of scheduling of goroutine,
+                // this electedCh can be outdated, if it's really
+                // the case, *must* ignore it, otherwise this
+                // term will have multiple leaders
+                if v == rf.currentTerm {
+                    for i := 0; i < len(rf.peers); i++ {
+                        rf.nextIndex[i] = len(rf.log)
+                        rf.matchIndex[i] = -1
+                    }
+                    rf.currentState = leaderState
+                    go rf.broadcastAppendEntries()
                 }
-                rf.currentState = leaderState
                 rf.mu.Unlock()
-                go rf.broadcastAppendEntries()
             case <-rf.appendRcvCh:
                 electionTimer.Stop()
             }
