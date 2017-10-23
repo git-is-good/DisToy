@@ -770,6 +770,7 @@ func TestFigure8Unreliable2C(t *testing.T) {
 		}
 	}
 
+    fmt.Printf("reach here!\n")
 	cfg.one(rand.Int()%10000, servers)
 
 	fmt.Printf("  ... Passed\n")
