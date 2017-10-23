@@ -774,29 +774,39 @@ func (rf *Raft) mainloop() {
             rf.mu.Unlock()
             electionTimer := rf.getNewElectionTimer()
             go rf.broadcastRequestVote()
-            select {
-            case <-electionTimer.C:
-//                fmt.Printf("%d electionTimer timeout\n", rf.me)
-                // election timeout as a candidate, start new election
-            case v := <-rf.electedCh:
-                // elected chan filled by broadcastRequestVote 
-                electionTimer.Stop()
-                rf.mu.Lock()
-                // maybe because of scheduling of goroutine,
-                // this electedCh can be outdated, if it's really
-                // the case, *must* ignore it, otherwise this
-                // term will have multiple leaders
-                if v == rf.currentTerm {
-                    for i := 0; i < len(rf.peers); i++ {
-                        rf.nextIndex[i] = len(rf.log)
-                        rf.matchIndex[i] = -1
+            out:
+            for {
+                select {
+                case <-electionTimer.C:
+    //                fmt.Printf("%d electionTimer timeout\n", rf.me)
+                    // election timeout as a candidate, start new election
+                    break out
+                case v := <-rf.electedCh:
+                    // elected chan filled by broadcastRequestVote 
+                    isRealElected := false
+                    rf.mu.Lock()
+                    // maybe because of scheduling of goroutine,
+                    // this electedCh can be outdated, if it's really
+                    // the case, *must* ignore it, otherwise this
+                    // term will have multiple leaders
+                    if v == rf.currentTerm {
+                        isRealElected = true
+                        for i := 0; i < len(rf.peers); i++ {
+                            rf.nextIndex[i] = len(rf.log)
+                            rf.matchIndex[i] = -1
+                        }
+                        rf.currentState = leaderState
+                        go rf.broadcastAppendEntries()
                     }
-                    rf.currentState = leaderState
-                    go rf.broadcastAppendEntries()
+                    rf.mu.Unlock()
+                    if isRealElected {
+                        electionTimer.Stop()
+                        break out
+                    }
+                case <-rf.appendRcvCh:
+                    electionTimer.Stop()
+                    break out
                 }
-                rf.mu.Unlock()
-            case <-rf.appendRcvCh:
-                electionTimer.Stop()
             }
 
         case leaderState:
