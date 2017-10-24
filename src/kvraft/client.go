@@ -4,10 +4,16 @@ import "labrpc"
 import "crypto/rand"
 import "math/big"
 
+import "time"
+//import "fmt"
+
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
+
+    id      int64
+    seqno   int64
 }
 
 func nrand() int64 {
@@ -21,6 +27,14 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// You'll have to add code here.
+
+    // So we use a big rand number to identify
+    // a client. it's ad hoc, however, we can
+    // use Raft to acheive a globally incrementing
+    // id...
+    ck.id = nrand()
+    ck.seqno = 1
+
 	return ck
 }
 
@@ -39,7 +53,33 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
-	return ""
+    ck.seqno += 1
+
+    args := GetArgs {
+        Key : key,
+
+        Ckid : ck.id,
+        Seqno : ck.seqno,
+    }
+
+    var reply GetReply
+
+//    fmt.Printf("Client %v Get called: k=%v\n", ck.id, key)
+    for {
+        for i := 0; i < len(ck.servers); i++ {
+            ok := ck.servers[i].Call("RaftKV.Get", &args, &reply)
+            if !ok {
+                // RPC failure
+                continue
+            }
+
+            if reply.Err == OK {
+//                fmt.Printf("Client %v Got: k=%v, v=%v\n", ck.id, key, reply.Value)
+                return reply.Value
+            }
+        }
+        time.Sleep(500 * time.Millisecond)
+    }
 }
 
 //
@@ -54,6 +94,33 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+    ck.seqno += 1
+
+    args := PutAppendArgs {
+        Key : key,
+        Value : value,
+        Op : op,
+
+        Ckid : ck.id,
+        Seqno : ck.seqno,
+    }
+
+    var reply PutAppendReply
+
+    for {
+        for i := 0; i < len(ck.servers); i++ {
+            ok := ck.servers[i].Call("RaftKV.PutAppend", &args, &reply)
+            if !ok {
+                // RPC failure
+                continue
+            }
+
+            if reply.Err == OK {
+                return
+            }
+        }
+        time.Sleep(500 * time.Millisecond)
+    }
 }
 
 func (ck *Clerk) Put(key string, value string) {
