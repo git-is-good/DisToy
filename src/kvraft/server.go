@@ -2,6 +2,7 @@ package raftkv
 
 import (
 	"encoding/gob"
+    "bytes"
 	"labrpc"
 	"log"
 	"raft"
@@ -46,11 +47,38 @@ type RaftKV struct {
     lastSeqCh           map[int64]chan int64
 
     keyValueMap         map[string]string
+
+    persister           *raft.Persister
+}
+
+func (kv *RaftKV) readSnapshot(data []byte) {
+    if data == nil || len(data) == 0 {
+        return
+    }
+    r := bytes.NewBuffer(data)
+    d := gob.NewDecoder(r)
+    d.Decode(&kv.lastSeqRecords)
+    d.Decode(&kv.keyValueMap)
+}
+
+func (kv *RaftKV) produceSnapshot() []byte {
+    buf := new(bytes.Buffer)
+    e := gob.NewEncoder(buf)
+    e.Encode(kv.lastSeqRecords)
+    e.Encode(kv.keyValueMap)
+    return buf.Bytes()
 }
 
 func (kv *RaftKV) chanConsumerLoop() {
     for {
         applyMsg := <-kv.applyCh
+//        fmt.Printf("new applyMsg got\n")
+        if applyMsg.UseSnapshot {
+            kv.mu.Lock()
+            kv.readSnapshot(applyMsg.Snapshot)
+            kv.mu.Unlock()
+            continue
+        }
         op := applyMsg.Command.(Op)
         clientId := op.Ckid
         seqno := op.Seqno
@@ -83,6 +111,11 @@ func (kv *RaftKV) chanConsumerLoop() {
             panic("Known service" + op.Service)
         }
         kv.lastSeqRecords[clientId] = seqno
+        // check whether need to compact log
+//        fmt.Printf("max:%v, now:%v\n", kv.maxraftstate, kv.persister.RaftStateSize())
+        if kv.maxraftstate != -1 && kv.persister.RaftStateSize() > kv.maxraftstate {
+            kv.rf.StartSnapshot(kv.produceSnapshot(), applyMsg.Index - 1)
+        }
         kv.mu.Unlock()
         go func() {
             select {
@@ -242,6 +275,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
     kv.lastSeqRecords = make(map[int64]int64)
     kv.lastSeqCh = make(map[int64]chan int64)
     kv.keyValueMap = make(map[string]string)
+    kv.persister = persister
+
+    kv.readSnapshot(persister.ReadSnapshot())
     go kv.chanConsumerLoop()
 
 	return kv
