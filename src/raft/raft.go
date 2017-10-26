@@ -589,8 +589,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
     rf.lastApplied = rf.lastIndexInSnapshot
     rf.commitIndex = rf.lastIndexInSnapshot
 
+    nextRealApplyStart := rf.lastApplied + 1
+
     go rf.mainloop()
-    go rf.submitter()
+    go rf.submitter(nextRealApplyStart)
 
 	return rf
 }
@@ -826,8 +828,8 @@ func (rf *Raft) checkCommit() {
 
 //TODO: here is an ad hoc vector used as a priority queue
 //replace it to priority queue...
-func (rf *Raft) submitter() {
-    nextRealApply := rf.lastApplied + 1
+func (rf *Raft) submitter(nextRealApplyStart int) {
+    nextRealApply := nextRealApplyStart
     remains := make([]ApplyMsg, 0)
     for {
         v := <-rf.subCh
