@@ -20,6 +20,11 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
+const (
+    maxServerResponseDelay = 500
+    infoChDropDelay = 80
+)
+
 type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
@@ -120,7 +125,7 @@ func (kv *RaftKV) chanConsumerLoop() {
         go func() {
             select {
             case infoCh <- seqno:
-            case <- time.After(10 * time.Millisecond):
+            case <- time.After(infoChDropDelay * time.Millisecond):
                 return
             }
         } ()
@@ -164,7 +169,7 @@ func (kv *RaftKV) Get(args *GetArgs, reply *GetReply) {
     }
 
 //    fmt.Printf("Server %v selecting...\n", kv.me)
-    timer := time.NewTimer(2000 * time.Millisecond)
+    timer := time.NewTimer(maxServerResponseDelay * time.Millisecond)
     for {
         select {
         case <- timer.C:
@@ -183,6 +188,11 @@ func (kv *RaftKV) Get(args *GetArgs, reply *GetReply) {
     }
 }
 
+// Server implements *at-most-once semantics*
+// Server will try to Start a raft at most once,
+// and wait at the result channel until a timeout threshold elapses
+// When this timeout elapses, no matter what happened,
+// Server will return
 func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
     clientId := args.Ckid
@@ -218,7 +228,7 @@ func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
         return
     }
 
-    timer := time.NewTimer(2000 * time.Millisecond)
+    timer := time.NewTimer(maxServerResponseDelay * time.Millisecond)
     for {
         select {
         case <- timer.C:

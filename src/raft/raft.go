@@ -288,8 +288,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
         if args.LeaderCommit > logLen - 1 {
             rf.commitIndex = logLen - 1
         }
+        go rf.checkApply()
     }
-    go rf.checkApply()
 }
 
 type InstallSnapshotArgs struct {

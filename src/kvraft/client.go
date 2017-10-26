@@ -4,7 +4,7 @@ import "labrpc"
 import "crypto/rand"
 import "math/big"
 
-import "time"
+//import "time"
 //import "fmt"
 
 
@@ -78,7 +78,7 @@ func (ck *Clerk) Get(key string) string {
                 return reply.Value
             }
         }
-        time.Sleep(500 * time.Millisecond)
+//        time.Sleep(100 * time.Millisecond)
     }
 }
 
@@ -92,6 +92,17 @@ func (ck *Clerk) Get(key string) string {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 //
+
+// Client implements *exactly-once semantics*, based on server's
+// at-most-once semantics.  Client calls RPC to servers by polling,
+// until one server responds a positive result. 
+// NOTE: Here the polling won't cause the waste of cpu time, unless
+// none of the servers consider itself as a leader, in which case
+// the whole Raft cluster completely failed. Because for the leader,
+// RPC will return positive, or negative with a maxServerResponseDelay
+// delay, so client will block at RPC instead of real polling.
+// In fact, originally there is a time.Sleep(),
+// but according to the tests it damages the performance
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
     ck.seqno += 1
@@ -119,7 +130,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
                 return
             }
         }
-        time.Sleep(500 * time.Millisecond)
+//        time.Sleep(500 * time.Millisecond)
     }
 }
 
