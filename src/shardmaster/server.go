@@ -110,6 +110,21 @@ func (sm *ShardMaster) handleJoin(servers map[int][]string) {
     sm.mu.Unlock()
 
     newConfig.Num = lenConfigs
+
+    // in case some servers are not new...
+    for gid, _ := range(servers) {
+        if _, ok := newConfig.Groups[gid]; ok {
+            delete(servers, gid)
+        }
+    }
+    // no real added server...
+    if len(servers) == 0 {
+        sm.mu.Lock()
+        sm.configs = append(sm.configs, *newConfig)
+        sm.mu.Unlock()
+        return
+    }
+
     for gid, serverNames := range(servers) {
         newConfig.Groups[gid] = serverNames
     }
