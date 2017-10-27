@@ -472,7 +472,7 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) {
             thisReq := request{args.Ckid, args.Seqno}
             configIndex = sm.privInfo[thisReq].(int)
         }
-        reply.Config = sm.configs[configIndex]
+        reply.Config = *sm.configs[configIndex].deepCopy()
         sm.mu.Unlock()
     } else {
         reply.WrongLeader = true
