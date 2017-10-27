@@ -4,9 +4,10 @@ import "labrpc"
 import "crypto/rand"
 import "math/big"
 
-//import "time"
+import "time"
 //import "fmt"
 
+const clientRequestDelay = 55
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
@@ -78,7 +79,7 @@ func (ck *Clerk) Get(key string) string {
                 return reply.Value
             }
         }
-//        time.Sleep(100 * time.Millisecond)
+        time.Sleep(time.Duration(clientRequestDelay) * time.Millisecond)
     }
 }
 
@@ -130,7 +131,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
                 return
             }
         }
-//        time.Sleep(500 * time.Millisecond)
+        time.Sleep(time.Duration(clientRequestDelay) * time.Millisecond)
     }
 }
 
