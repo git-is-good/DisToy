@@ -8,10 +8,14 @@ import "labrpc"
 import "time"
 import "crypto/rand"
 import "math/big"
+//import "fmt"
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// Your data here.
+
+    id      int64
+    seqno   int64
 }
 
 func nrand() int64 {
@@ -25,12 +29,18 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// Your code here.
+
+    ck.id = nrand()
+    ck.seqno = 1
 	return ck
 }
 
 func (ck *Clerk) Query(num int) Config {
 	args := &QueryArgs{}
 	// Your code here.
+    ck.seqno += 1
+    args.Ckid = ck.id
+    args.Seqno = ck.seqno
 	args.Num = num
 	for {
 		// try each known server.
@@ -48,6 +58,9 @@ func (ck *Clerk) Query(num int) Config {
 func (ck *Clerk) Join(servers map[int][]string) {
 	args := &JoinArgs{}
 	// Your code here.
+    ck.seqno += 1
+    args.Ckid = ck.id
+    args.Seqno = ck.seqno
 	args.Servers = servers
 
 	for {
@@ -67,6 +80,9 @@ func (ck *Clerk) Leave(gids []int) {
 	args := &LeaveArgs{}
 	// Your code here.
 	args.GIDs = gids
+    ck.seqno += 1
+    args.Ckid = ck.id
+    args.Seqno = ck.seqno
 
 	for {
 		// try each known server.
@@ -86,6 +102,9 @@ func (ck *Clerk) Move(shard int, gid int) {
 	// Your code here.
 	args.Shard = shard
 	args.GID = gid
+    ck.seqno += 1
+    args.Ckid = ck.id
+    args.Seqno = ck.seqno
 
 	for {
 		// try each known server.

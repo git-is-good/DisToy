@@ -113,7 +113,7 @@ func (kv *RaftKV) chanConsumerLoop() {
         case "Get":
 //            fmt.Printf("Server %v: Get successfully applied for client %v\n", kv.me, clientId)
         default:
-            panic("Known service" + op.Service)
+            panic("Unknown service: " + op.Service)
         }
         kv.lastSeqRecords[clientId] = seqno
         // check whether need to compact log

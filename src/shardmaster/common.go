@@ -25,10 +25,24 @@ const NShards = 10
 
 // A configuration -- an assignment of shards to groups.
 // Please don't change this.
+
+// NOTE: array in go is value, map and slice are reference
 type Config struct {
 	Num    int              // config number
 	Shards [NShards]int     // shard -> gid
 	Groups map[int][]string // gid -> servers[]
+}
+
+func (conf *Config) deepCopy() *Config {
+    newConf := &Config {
+        Num : conf.Num,
+        Shards : conf.Shards,
+    }
+    newConf.Groups = make(map[int][]string)
+    for k, v := range(conf.Groups) {
+        newConf.Groups[k] = v
+    }
+    return newConf
 }
 
 const (
@@ -39,6 +53,9 @@ type Err string
 
 type JoinArgs struct {
 	Servers map[int][]string // new GID -> servers mappings
+
+    Ckid        int64
+    Seqno       int64
 }
 
 type JoinReply struct {
@@ -48,6 +65,9 @@ type JoinReply struct {
 
 type LeaveArgs struct {
 	GIDs []int
+
+    Ckid        int64
+    Seqno       int64
 }
 
 type LeaveReply struct {
@@ -58,6 +78,9 @@ type LeaveReply struct {
 type MoveArgs struct {
 	Shard int
 	GID   int
+
+    Ckid        int64
+    Seqno       int64
 }
 
 type MoveReply struct {
@@ -67,6 +90,9 @@ type MoveReply struct {
 
 type QueryArgs struct {
 	Num int // desired config number
+
+    Ckid        int64
+    Seqno       int64
 }
 
 type QueryReply struct {
