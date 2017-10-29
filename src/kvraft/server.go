@@ -94,6 +94,9 @@ func (kv *RaftKV) chanConsumerLoop() {
         kv.mu.Unlock()
 
         if seqno == lastSeq {
+            if kv.maxraftstate != -1 && kv.persister.RaftStateSize() > kv.maxraftstate {
+                kv.rf.StartSnapshot(kv.produceSnapshot(), applyMsg.Index - 1)
+            }
             continue
         } else if seqno < lastSeq {
             panic("seqno should never < lastSeq")

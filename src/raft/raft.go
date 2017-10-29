@@ -22,7 +22,7 @@ import(
     "labrpc"
     "time"
     "math/rand"
-//    "fmt"
+    "fmt"
     "reflect"
 )
 
@@ -242,11 +242,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
         reply.ConflictStart = -2
         reply.ConflictTerm = logLen
         return
-    } else if args.PrevLogIndex < rf.lastIndexInSnapshot {
-        // lack
-        reply.ConflictStart = -2
-        reply.ConflictTerm = rf.lastIndexInSnapshot
-        return
     } else if args.PrevLogIndex >= 0 && rf.getLogTermAt(args.PrevLogIndex) != args.PrevLogTerm {
         reply.ConflictTerm = rf.getLogTermAt(args.PrevLogIndex)
         // for the worst case, conflict starts from the one after lastIndexInSnapshot
@@ -262,6 +257,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
     }
 
     reply.Success = true
+    if args.PrevLogIndex < rf.lastIndexInSnapshot {
+        args.Entries = args.Entries[rf.lastIndexInSnapshot - args.PrevLogIndex:]
+        args.PrevLogIndex = rf.lastIndexInSnapshot
+    }
 
     realAddStart := 0
     for _, entry := range args.Entries {
@@ -319,10 +318,17 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
     // if this snapshot already in my commit,
     // it's a lated InstallSnapshot, maybe caused by network delay, ignore
-    if args.Term < rf.currentTerm || rf.commitIndex >= args.LastIncludedIndex {
+    if (args.Term < rf.currentTerm ||
+       rf.lastIndexInSnapshot >= args.LastIncludedIndex ||
+       (rf.getLogLen() > args.LastIncludedIndex && rf.getLogTermAt(args.LastIncludedIndex) == args.LastIncludedTerm)) {
+        return
+    } else if args.Term > rf.currentTerm {
+        rf.updateTermAndConvert(args.Term)
         return
     }
 
+
+//    fmt.Printf("###### %v: Snapshot Received: nlog:%v, rf.lastIndexInSnapshot:%v, LastIncludedIndex:%v, from:%v:%v, rf.currentTerm:%v\n", rf.me, rf.getLogLen(), rf.lastIndexInSnapshot, args.LastIncludedIndex, args.LeaderId, args.Term, rf.currentTerm)
     rf.snapshot = args.Data
     rf.lastIndexInSnapshot = args.LastIncludedIndex
     rf.lastTermInSnapshot = args.LastIncludedTerm
@@ -651,6 +657,10 @@ func (rf *Raft) broadcastAppendEntries() {
 
                 rf.mu.Lock()
                 rf.nextIndex[i] = args.LastIncludedIndex + 1
+//                if rf.nextIndex[i] > nlog {
+//                    fmt.Printf("%v: rf.nextIndex[%v]:%v, nlog:%v, reply:%v, rf.lastIndexInSnapshot:%v, len(rf.log):%v\n", rf.me, i, rf.nextIndex[i], nlog, reply, rf.lastIndexInSnapshot, len(rf.log))
+//                    panic("PREV SNAP IMPOSSIBLE!\n")
+//                }
                 rf.mu.Unlock()
             } (i)
         } else {
@@ -664,6 +674,11 @@ func (rf *Raft) broadcastAppendEntries() {
             // *must* copy, otherwise rf.log might be changed 
             // when the goroutine is excecuting
 //            fmt.Printf("Server:%v i: %v nextIndexI:%v, lastIndexInSnapshot:%v, len(rf.log):%v\n", rf.me, i, nextIndexI, rf.lastIndexInSnapshot, len(rf.log))
+            if nextIndexI - rf.lastIndexInSnapshot - 1 > len(rf.log) {
+                fmt.Printf("%v: nextIndexI:%v, rf.lastIndexInSnapshot:%v, len(rf.log):%v, leaderCommit:%v\n",
+                            rf.me, nextIndexI, rf.lastIndexInSnapshot, len(rf.log), leaderCommit)
+                panic("IMPOSSIBLE!!!\n")
+            }
             args.Entries = append([]LogEntry(nil), rf.log[nextIndexI - rf.lastIndexInSnapshot - 1:]...)
             if args.PrevLogIndex >= 0 {
                 args.PrevLogTerm = rf.getLogTermAt(args.PrevLogIndex)
@@ -713,6 +728,14 @@ func (rf *Raft) broadcastAppendEntries() {
     //                fmt.Printf("reply.ConflictStart = %d, nextIndex[%d] = %d\n", reply.ConflictStart, i, rf.nextIndex[i])
                     rf.mu.Unlock()
                 }
+
+//                rf.mu.Lock()
+//                if rf.nextIndex[i] > nlog {
+//                    fmt.Printf("%v: rf.nextIndex[%v]:%v, nlog:%v, reply:%v, rf.lastIndexInSnapshot:%v, len(rf.log):%v\n", rf.me, i, rf.nextIndex[i], nlog, reply, rf.lastIndexInSnapshot, len(rf.log))
+//                    panic("PREV IMPOSSIBLE!\n")
+//                }
+//                rf.mu.Unlock()
+
             } (i)
         }
     }
