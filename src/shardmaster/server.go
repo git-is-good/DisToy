@@ -380,6 +380,10 @@ func (sm *ShardMaster) chanConsumerLoop() {
             select {
             case infoCh <- seqno:
             case <- time.After(infoChDropDelay * time.Millisecond):
+                // TODO: potential resource leak
+                // sm.privInfo might be assigned to this request
+                // if timeout without caller delete it, this
+                // map entry becomes garbage
                 return
             }
         } ()
@@ -471,6 +475,7 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) {
         if args.Num == -1 {
             thisReq := request{args.Ckid, args.Seqno}
             configIndex = sm.privInfo[thisReq].(int)
+            delete(sm.privInfo, thisReq)
         }
         reply.Config = *sm.configs[configIndex].deepCopy()
         sm.mu.Unlock()
